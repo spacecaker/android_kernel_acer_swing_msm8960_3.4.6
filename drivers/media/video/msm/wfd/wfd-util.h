@@ -87,3 +87,4 @@ int wfd_stats_update(struct wfd_stats *, enum wfd_stats_event);
 int wfd_stats_deinit(struct wfd_stats *);
 void wfd_stats_teardown(void);
 #endif
+

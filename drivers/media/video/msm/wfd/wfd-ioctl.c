@@ -170,7 +170,7 @@ static int wfd_allocate_ion_buffer(struct ion_client *client,
 		goto alloc_fail;
 	}
 
-	kvaddr = ion_map_kernel(client, handle, secure ? UNCACHED : CACHED);
+	kvaddr = ion_map_kernel(client,	handle,	CACHED);
 
 	if (IS_ERR_OR_NULL(kvaddr)) {
 		WFD_MSG_ERR("Failed to get virtual addr\n");
@@ -178,23 +178,13 @@ static int wfd_allocate_ion_buffer(struct ion_client *client,
 		goto alloc_fail;
 	}
 
-	if (secure) {
-		WFD_MSG_INFO("%s: calling ion_phys", __func__);
-		rc = ion_phys(client,
-			handle,
-			(unsigned long *)&phys_addr, (size_t *)&size);
-	} else {
-		WFD_MSG_INFO("%s: calling ion_map_iommu", __func__);
-		rc = ion_map_iommu(client, handle,
-				VIDEO_DOMAIN, VIDEO_MAIN_POOL, SZ_4K,
-				0, (unsigned long *)&phys_addr,
-				&size, 0, 0);
-	}
+	rc = ion_map_iommu(client, handle,
+			VIDEO_DOMAIN, VIDEO_MAIN_POOL, SZ_4K,
+			0, (unsigned long *)&phys_addr,
+			&size, 0, 0);
 
-	if (rc || !phys_addr) {
-		WFD_MSG_ERR(
-			"Failed to get physical addr, rc = %d, phys_addr = 0x%p\n",
-			rc, phys_addr);
+	if (rc) {
+		WFD_MSG_ERR("Failed to get physical addr\n");
 		goto alloc_fail;
 	} else if (size < mregion->size) {
 		WFD_MSG_ERR("Failed to map enough memory\n");
@@ -321,10 +311,8 @@ int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
 				(unsigned long *)&mdp_mregion->size, 0, 0);
 		}
 
-		if (rc || !mdp_mregion->paddr) {
-			WFD_MSG_ERR(
-				"Failed to map to mdp, rc = %d, paddr = 0x%p\n",
-				rc, mdp_mregion->paddr);
+		if (rc) {
+			WFD_MSG_ERR("Failed to map to mdp\n");
 			mdp_mregion->kvaddr = NULL;
 			mdp_mregion->paddr = NULL;
 			mdp_mregion->ion_handle = NULL;
@@ -336,9 +324,8 @@ int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
 		mdp_buf.kvaddr = (u32) mdp_mregion->kvaddr;
 		mdp_buf.paddr = (u32) mdp_mregion->paddr;
 
-		WFD_MSG_DBG("NOTE: mdp paddr = [%p->%p], kvaddr = %p\n",
-				mdp_mregion->paddr, (void *)
-				((int)mdp_mregion->paddr + mdp_mregion->size),
+		WFD_MSG_DBG("NOTE: mdp paddr = %p, kvaddr = %p\n",
+				mdp_mregion->paddr,
 				mdp_mregion->kvaddr);
 
 		INIT_LIST_HEAD(&mpair->list);
@@ -363,12 +350,7 @@ int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
 		WFD_MSG_ERR("Failed to allocate recon buffers\n");
 		goto alloc_fail;
 	}
-	return rc;
-
 alloc_fail:
-	kfree(mpair);
-	kfree(enc_mregion);
-	kfree(mdp_mregion);
 	return rc;
 }
 void wfd_free_input_buffers(struct wfd_device *wfd_dev,
@@ -413,7 +395,7 @@ void wfd_free_input_buffers(struct wfd_device *wfd_dev,
 				}
 			}
 
-			if (mpair->enc->paddr && !wfd_dev->secure_device)
+			if (mpair->enc->paddr)
 				ion_unmap_iommu(wfd_dev->ion_client,
 						mpair->enc->ion_handle,
 						VIDEO_DOMAIN, VIDEO_MAIN_POOL);
@@ -1308,10 +1290,7 @@ static int wfd_open(struct file *filp)
 
 	WFD_MSG_DBG("wfd_open: E\n");
 	wfd_dev = video_drvdata(filp);
-	if (!wfd_dev) {
-		rc = -EINVAL;
-		goto err_dev_busy;
-	}
+
 	mutex_lock(&wfd_dev->dev_lock);
 	if (wfd_dev->in_use) {
 		WFD_MSG_ERR("Device already in use.\n");
@@ -1324,7 +1303,7 @@ static int wfd_open(struct file *filp)
 	mutex_unlock(&wfd_dev->dev_lock);
 
 	inst = kzalloc(sizeof(struct wfd_inst), GFP_KERNEL);
-	if (!inst) {
+	if (!inst || !wfd_dev) {
 		WFD_MSG_ERR("Could not allocate memory for "
 			"wfd instance\n");
 		rc = -ENOMEM;
@@ -1382,9 +1361,6 @@ err_venc:
 	v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
 				MDP_CLOSE, (void *)inst->mdp_inst);
 err_mdp_open:
-	mutex_lock(&wfd_dev->dev_lock);
-	wfd_dev->in_use = false;
-	mutex_unlock(&wfd_dev->dev_lock);
 	kfree(inst);
 err_dev_busy:
 	return rc;
@@ -1652,3 +1628,4 @@ static void __exit wfd_exit(void)
 
 module_init(wfd_init);
 module_exit(wfd_exit);
+

@@ -82,3 +82,4 @@ extern long venc_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
 
 
 #endif /* _WFD_ENC_SUBDEV_ */
+
